@@ -9,7 +9,7 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Prerequisites
 
-* Powrshell 2.0
+* Powershell 2.0
 * Citrix SnapIns for Powershell
 
 ### Installing
