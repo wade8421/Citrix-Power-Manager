@@ -1,4 +1,4 @@
-# Citrix-Power-Mananger
+# Citrix-Power-Manager
 Citrix Smart Tools will be end of life on 5/31/2019 unless you are willing to move your Citrix management servers over to Citrix Cloud.  We have heavily relied on the "Smart Scale" tool as our infrastrutures ran in public cloud environments.  It appears that unless you want to pay Citrix to run your delivery controllers and Storefronts, then you can't use their tool.
 
 For those of us that don't wish to give up control of these services, or simply can't for company policy reason, I have created this powershell script that can be run as a service from any machine with LAN level access to you your delivery controllers or even on your delivery controller.
