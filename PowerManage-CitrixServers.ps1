@@ -2,20 +2,6 @@ param (
         [switch]$Debug
     )
 
-## Variables
-$DeliveryGroupName = "Standard VDI" #delivery groups
-$PeakStart = "06:00" #peak Start Time
-$PeakStop = "17:00" #peak end time
-$PeakDays = @("Monday","Tuesday","Wednesday","Thursday","Friday") #peak days
-$PercentAvailableAlways = 10 #percent of servers always available
-$PecentAvailablePeakStart = 80 #percent of servers available at peak start
-$maxUserLoad = 10 #Max number of users per server
-$startNextAtload = 80 #Max server load before starting another server 
-$qtyStartNext = 1 #Start this many servers when load is reached
-$DDC = @("localhost", "ddc02.domain.local")
-$DDCPort = 80
-$serviceDelay = 60  #Seconds
-
 ## Constants
 $evtIDPSSnapIn = 1
 $evtIDNoDDC = 101
@@ -27,6 +13,7 @@ $evtIDPowerOn = 301
 $evtIDPoweroff = 302
 $evtIDDisablePowerManange = 303
 $evtIDUserMaintMode = 401
+$configFile = (Get-Location).Path + "\PowerManage-CitrixServers.xml"
 
 ##Event Logs
 if ((Get-EventLog "Citrix Power Manager" -Source "Power Manager") -eq $false) {
@@ -48,6 +35,58 @@ catch {
     New-BrokerTag -Name "DisablePowerManage" | Out-Null
     Write-Debug "Created Broker Tag 'DisablePowerManage'"
 }
+
+if (Test-Path -Path $configFile) {
+    [xml]$UsageFile = Get-Content $configFile
+}
+else {
+    $xmlwriter = New-Object System.XML.XMLTextWriter($configFile, $Null)
+    $xmlWriter.Formatting = 'Indented'
+    $xmlWriter.Indentation = 1
+    $XmlWriter.IndentChar = "`t"
+    $xmlWriter.WriteStartDocument()
+        $xmlWriter.WriteStartElement('Configuration')
+            $xmlWriter.WriteElementString('DeliveryGroupName', "Standard VDI")
+            $xmlWriter.WriteElementString('PeakStart', "06:00")
+            $xmlWriter.WriteElementString('PeakStop', "17:00")
+            $xmlWriter.WriteStartElement('PeakDays')
+                $xmlWriter.WriteElementString('Day', "Monday")
+                $xmlWriter.WriteElementString('Day', "Tuesday")
+                $xmlWriter.WriteElementString('Day', "Wednesday")
+                $xmlWriter.WriteElementString('Day', "Thursday")
+                $xmlWriter.WriteElementString('Day', "Friday")
+            $xmlWriter.WriteEndElement()
+            $xmlWriter.WriteElementString('PercentAvailableAlways', 10)
+            $xmlWriter.WriteElementString('PercentAvailablePeakStart', 80)
+            $xmlWriter.WriteElementString('MaxUserLoad', 10)
+            $xmlWriter.WriteElementString('StartNextAtLoad', 80)
+            $xmlWriter.WriteElementString('QtyStartNext', 1)
+            $xmlWriter.WriteStartElement('DDC')
+                $xmlWriter.WriteElementString('DDCAddress', "localhost")
+                $xmlWriter.WriteElementString('DDCAddress', "ddc02.domain.local")
+            $xmlWriter.WriteEndElement()
+            $xmlWriter.WriteElementString('DDCPort', 80)
+            $xmlWriter.WriteElementString('ServiceDelay', 60)
+        $xmlWriter.WriteEndElement()
+    $xmlWriter.WriteEndDocument()
+    $xmlWriter.Flush()
+    $xmlWriter.Close()
+    [xml]$UsageFile = Get-Content $configFile
+}
+
+## Variables
+$DeliveryGroupName = $UsageFile.Configuration.DeliveryGroupName
+$PeakStart = $UsageFile.Configuration.PeakStart
+$PeakStop = $UsageFile.Configuration.PeakStop
+$PeakDays = $UsageFile.Configuration.PeakDays.Day
+[int]$PercentAvailableAlways = $UsageFile.Configuration.PercentAvailableAlways
+[int]$PercentAvailablePeakStart = $UsageFile.Configuration.PercentAvailablePeakStart
+[int]$maxUserLoad = $UsageFile.Configuration.MaxUserLoad
+[int]$startNextAtload = $UsageFile.Configuration.StartNextAtLoad
+[int]$qtyStartNext = $UsageFile.Configuration.QtyStartNext
+$DDC = $UsageFile.Configuration.DDC.DDCAddress
+[int]$DDCPort = $UsageFile.Configuration.DDCPort
+[int]$serviceDelay = $UsageFile.Configuration.ServiceDelay
 
 ## Functions
 Function Is-PeakHours {
@@ -85,15 +124,17 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
     $DeliveryGroup = (Get-BrokerDesktopGroup -Name $DeliveryGroupName -AdminAddress $DDCAddress)
     $desktopsInUse = $DeliveryGroup.DesktopsAvailable + $DeliveryGroup.DesktopsInUse
     $load = ($DeliveryGroup.Sessions / ($maxUserLoad * $desktopsInUse)) * 100
-    $reducdedLoad = ($DeliveryGroup.Sessions / ($maxUserLoad * ($desktopsInUse -$qtyStartNext))) * 100
+    $reducdedLoad = ($DeliveryGroup.Sessions / ($maxUserLoad * ($desktopsInUse - $qtyStartNext))) * 100
     
     if (Is-PeakHours) {
         write-debug "Peak Hours"
-        $MinAvailable = [math]::Round($ServerCount * ($PecentAvailablePeakStart / 100))
+        $MinAvailable = [math]::Round($ServerCount * ($PecrentAvailablePeakStart / 100))
     } else {
         write-debug "Off-Peak Hours"
         $MinAvailable = [math]::Round($ServerCount * ($PercentAvailableAlways / 100))
     }
+
+    $qty = $desktopsInUse
 
     if ($load -ge $startNextAtload) { 
         $qty = $desktopsInUse + $qtyStartNext
@@ -101,23 +142,20 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
     elseif ($reducdedLoad -lt $startNextAtload) {
         $qty = $desktopsInUse - $qtyStartNext
     }
-    else {
-        $qty = $desktopsInUse
+
+    if ($qty -lt $MinAvailable) {
+        $qty = $MinAvailable
     }
 
     if ($qty -gt $ServerCount) {
         $qty = $ServerCount
     }
 
-    if ($qty -lt $MinAvailable) {
-        $qty = $MinAvailable
-    }
-
     write-debug "Session Count: $($DeliveryGroup.Sessions)"
     write-debug "Desktop Count: $desktopsInUse"
-    write-debug "Desktop Load: $load%"
-    write-debug "Reduced Load: $reducdedLoad%"
-    write-debug "Configured Maximum Desktop Load: $startNextAtload%"
+    write-debug "Desktop Load: $load`%"
+    write-debug "Reduced Load: $reducdedLoad`%"
+    write-debug "Configured Maximum Desktop Load: $startNextAtload`%"
     write-debug "Configured Maximum Users Per Desktop: $maxUserLoad"
     write-debug "Number of Desktops requested: $qty"
     Write-Debug "Number of Desktops in Delivery Group: $ServerCount"
@@ -166,19 +204,16 @@ do {
     if ($AdminAddress -ne $false) {
         $now = Get-date
         write-debug (Get-Date $now -Format g)
-        $ARRAY | sort @{e={$_.PROP_A}; a=0}, PROP_B
         $Servers = Get-BrokerDesktop -DesktopGroupName $DeliveryGroupName -AdminAddress $AdminAddress | sort @{e={($_.AssociatedUserNames).Count}; a=0}, InMaintenanceMode
         $qty = Get-DesktopCount $servers.Count $AdminAddress
 
         $Servers | Select -First $qty | ? { $_.InMaintenanceMode -eq $true } | % { 
             Set-MaintenanceMode $_ "Disable" $evtIDMaintOn
-        }
+        }       
             
         $Servers | select -last ($servers.Count - $qty) | ? { $_.InMaintenanceMode -eq $false }| % {
             Set-MaintenanceMode $_ "Enable" $evtIDMaintOff
         }
-
-        Start-Sleep -Seconds 5
 
         $Servers | % {
             if (($_.PowerState -eq "Off")  -and ( $_.InMaintenanceMode -eq $false)) {
@@ -189,5 +224,5 @@ do {
             }
         }
     }
-    Start-Sleep -Seconds ($serviceDelay - 6)
+    Start-Sleep -Seconds ($serviceDelay - 1)
 } while ($true)
