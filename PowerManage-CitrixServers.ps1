@@ -142,13 +142,13 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
     elseif ($reducdedLoad -lt $startNextAtload) {
         $qty = $desktopsInUse - $qtyStartNext
     }
+    
+    if ($qty -gt $ServerCount) {
+        $qty = $ServerCount
+    }
 
     if ($qty -lt $MinAvailable) {
         $qty = $MinAvailable
-    }
-
-    if ($qty -gt $ServerCount) {
-        $qty = $ServerCount
     }
 
     write-debug "Session Count: $($DeliveryGroup.Sessions)"
