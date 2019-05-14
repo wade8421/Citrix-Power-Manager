@@ -12,7 +12,7 @@ $PecentAvailablePeakStart = 80 #percent of servers available at peak start
 $maxUserLoad = 10 #Max number of users per server
 $startNextAtload = 80 #Max server load before starting another server 
 $qtyStartNext = 1 #Start this many servers when load is reached
-$DDC = @("rlaw-ddc01.rlaw.local", "rlaw-ddc02.rlaw.local")
+$DDC = @("localhost", "ddc02.domain.local")
 $DDCPort = 80
 $serviceDelay = 60  #Seconds
 
