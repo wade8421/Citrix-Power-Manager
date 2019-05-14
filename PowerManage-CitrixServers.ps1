@@ -50,20 +50,6 @@ catch {
 }
 
 ## Functions
-Function Get-UserMaintenanceMode ($machine, $DDCAddress) {
-    $CitrixSrv = ($machine.split("."))[0]
-    $filter = "*$CitrixSrv*"
-
-    $log = Get-LogHighLevelOperation -AdminAddress $DDCAddress -Filter { Text -like $filter -and Text -like "*Maintenance Mode*" }  | Sort-Object EndTime -Descending | Select -First 1
-    if ($log.Text -like "Turn On Maintenance Mode*") {
-        write-debug $log.Text "by" $log.User "at" $log.EndTime 
-        Write-EventLog -LogName "Citrix Power Manager" -Source "Power Manager" -Message “Skipping $machine. Already in maintenance mode.” -EventId $evtIDUserMaintMode -EntryType Information
-        return $true
-    }
-
-    return $false
-}
-
 Function Is-PeakHours {
     if (($now.TimeOfDay -ge $startTime.TimeOfDay) -and ($now.TimeOfDay -lt $stopTime.TimeOfDay)) {
         if ($PeakDays -match ($now.DayOfWeek)){
