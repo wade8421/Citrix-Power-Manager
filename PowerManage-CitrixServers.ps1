@@ -134,14 +134,7 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
         $MinAvailable = [math]::Round($ServerCount * ($PercentAvailableAlways / 100))
     }
 
-    $qty = $desktopsInUse
-
-    if ($load -ge $startNextAtload) { 
-        $qty = $desktopsInUse + $qtyStartNext
-    }
-    elseif ($reducdedLoad -lt $startNextAtload) {
-        $qty = $desktopsInUse - $qtyStartNext
-    }
+    $qty = [math]::Ceiling(($DeliveryGroup.Sessions / $startNextAtload) * $maxUserLoad)
     
     if ($qty -gt $ServerCount) {
         $qty = $ServerCount
