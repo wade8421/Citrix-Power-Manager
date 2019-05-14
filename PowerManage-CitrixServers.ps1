@@ -215,6 +215,8 @@ do {
             Set-MaintenanceMode $_ "Enable" $evtIDMaintOff
         }
 
+        Start-Sleep -Seconds 5
+
         $Servers | % {
             if (($_.PowerState -eq "Off")  -and ( $_.InMaintenanceMode -eq $false)) {
                 Set-Power $_ "TurnOn"  $evtIDPowerOn
@@ -224,5 +226,5 @@ do {
             }
         }
     }
-    Start-Sleep -Seconds ($serviceDelay - 1)
+    Start-Sleep -Seconds ($serviceDelay - 6)
 } while ($true)
