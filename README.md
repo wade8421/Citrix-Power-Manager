@@ -14,15 +14,15 @@ These instructions will get you a copy of the project up and running on your loc
 
 ### Installing
 
-Recommended Install:
+On the ToDo list:
 
 Run the exe to install the service.
 Change the user that runs the script to a service account that has access to administer your citrix environment.
 The service will make the config file needed.  Please modify the settings to meet your needs.  I have tried to make it match the settings on Smart Scale tool as closely as possible.
 
-Alternate Install:
+Current best Install:
 
-Save as a PS1 file and run in a Powershell 2.0 window.
+Save as a PS1 file and run as a scheduled task at start-up.  Run the task with a user that has access to administer your citirx environment.
 
 
 ## Authors
