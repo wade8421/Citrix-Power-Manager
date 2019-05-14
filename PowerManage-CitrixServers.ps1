@@ -123,42 +123,32 @@ function Get-AdminAddress ($DDCAddresses, $current) {
 function Get-DesktopCount ($ServerCount, $DDCAddress) {
     $DeliveryGroup = (Get-BrokerDesktopGroup -Name $DeliveryGroupName -AdminAddress $DDCAddress)
     $desktopsInUse = $DeliveryGroup.DesktopsAvailable + $DeliveryGroup.DesktopsInUse
-    $load = ($DeliveryGroup.Sessions / ($maxUserLoad * $desktopsInUse)) * 100
-    $reducdedLoad = ($DeliveryGroup.Sessions / ($maxUserLoad * ($desktopsInUse - $qtyStartNext))) * 100
     
     if (Is-PeakHours) {
         write-debug "Peak Hours"
-        $MinAvailable = [math]::Round($ServerCount * ($PecrentAvailablePeakStart / 100))
+        $MinAvailable = [math]::Ceiling($($PercentAvailablePeakStart / 100) * $ServerCount)
     } else {
         write-debug "Off-Peak Hours"
-        $MinAvailable = [math]::Round($ServerCount * ($PercentAvailableAlways / 100))
+        $MinAvailable = [math]::Ceiling($($PercentAvailableAlways / 100) * $ServerCount)
     }
 
-    $qty = $desktopsInUse
-
-    if ($load -ge $startNextAtload) { 
-        $qty = $desktopsInUse + $qtyStartNext
-    }
-    elseif ($reducdedLoad -lt $startNextAtload) {
-        $qty = $desktopsInUse - $qtyStartNext
-    }
-    
-    if ($qty -gt $ServerCount) {
-        $qty = $ServerCount
-    }
+    $qty = [math]::Ceiling($DeliveryGroup.Sessions / $($startNextAtload / $maxUserLoad))
 
     if ($qty -lt $MinAvailable) {
         $qty = $MinAvailable
     }
 
+    if ($qty -gt $ServerCount) {
+        $qty = $ServerCount
+    }
+
     write-debug "Session Count: $($DeliveryGroup.Sessions)"
     write-debug "Desktop Count: $desktopsInUse"
-    write-debug "Desktop Load: $load`%"
-    write-debug "Reduced Load: $reducdedLoad`%"
-    write-debug "Configured Maximum Desktop Load: $startNextAtload`%"
-    write-debug "Configured Maximum Users Per Desktop: $maxUserLoad"
-    write-debug "Number of Desktops requested: $qty"
-    Write-Debug "Number of Desktops in Delivery Group: $ServerCount"
+    write-debug "Maximum Desktop Load: $startNextAtload`%"
+    write-debug "Maximum Users Per Desktop: $maxUserLoad"
+    Write-Debug "Desktops in Delivery Group: $ServerCount"
+    write-debug "Desktops requested: $qty"
+    
     return $qty
 
 }
@@ -192,7 +182,8 @@ Function Set-Power ($Server, $value, $EventID) {
 }
 
 ## Calculated variables
-if ($debug) {$DebugPreference = "Continue"}
+if ($debug) { $DebugPreference = "Continue" }
+if ($serviceDelay -lt 60) { $serviceDelay = 60 }
 $startTime = Get-Date $PeakStart
 $stopTime = Get-Date $PeakStop
 $AdminAddress = Get-AdminAddress $DDC
@@ -204,7 +195,7 @@ do {
     if ($AdminAddress -ne $false) {
         $now = Get-date
         write-debug (Get-Date $now -Format g)
-        $Servers = Get-BrokerDesktop -DesktopGroupName $DeliveryGroupName -AdminAddress $AdminAddress | sort @{e={($_.AssociatedUserNames).Count}; a=0}, InMaintenanceMode
+        $Servers = Get-BrokerDesktop -DesktopGroupName $DeliveryGroupName -AdminAddress $AdminAddress | sort @{e={($_.AssociatedUserNames).Count}; a=0}, InMaintenanceMode, DNSName
         $qty = Get-DesktopCount $servers.Count $AdminAddress
 
         $Servers | Select -First $qty | ? { $_.InMaintenanceMode -eq $true } | % { 
