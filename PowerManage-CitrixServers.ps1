@@ -13,6 +13,7 @@ $evtIDPowerOn = 301
 $evtIDPoweroff = 302
 $evtIDDisablePowerManange = 303
 $evtIDUserMaintMode = 401
+$evtIDUsage = 701
 $configFile = (Get-Location).Path + "\PowerManage-CitrixServers.xml"
 
 ##Event Logs
@@ -28,50 +29,55 @@ catch {
     exit 0
 }
 
+if (Test-Path -Path $configFile) {
+    [xml]$UsageFile = Get-Content $configFile
+}
+else {
+    try {
+        $xmlwriter = New-Object System.XML.XMLTextWriter($configFile, $Null) -ErrorAction Stop
+        $xmlWriter.Formatting = 'Indented'
+        $xmlWriter.Indentation = 1
+        $XmlWriter.IndentChar = "`t"
+        $xmlWriter.WriteStartDocument()
+            $xmlWriter.WriteStartElement('Configuration')
+                $xmlWriter.WriteElementString('DeliveryGroupName', "Standard VDI")
+                $xmlWriter.WriteElementString('PeakStart', "08:00")
+                $xmlWriter.WriteElementString('PeakStop', "17:00")
+                $xmlWriter.WriteStartElement('PeakDays')
+                    $xmlWriter.WriteElementString('Day', "Monday")
+                    $xmlWriter.WriteElementString('Day', "Tuesday")
+                    $xmlWriter.WriteElementString('Day', "Wednesday")
+                    $xmlWriter.WriteElementString('Day', "Thursday")
+                    $xmlWriter.WriteElementString('Day', "Friday")
+                $xmlWriter.WriteEndElement()
+                $xmlWriter.WriteElementString('PercentAvailableAlways', 5)
+                $xmlWriter.WriteElementString('PercentAvailablePeakStart', 50)
+                $xmlWriter.WriteElementString('MaxUserLoad', 10)
+                $xmlWriter.WriteElementString('StartNextAtLoad', 90)
+                $xmlWriter.WriteStartElement('DDC')
+                    $xmlWriter.WriteElementString('DDCAddress', "localhost")
+                    $xmlWriter.WriteElementString('DDCAddress', "ddc02.domain.local")
+                $xmlWriter.WriteEndElement()
+                $xmlWriter.WriteElementString('ServiceDelay', 60)
+                $xmlWriter.WriteElementString('VerboseLogging', 'False')
+            $xmlWriter.WriteEndElement()
+        $xmlWriter.WriteEndDocument()
+        $xmlWriter.Flush()
+        $xmlWriter.Close()
+        [xml]$UsageFile = Get-Content $configFile
+    }
+    catch {
+        Write-EventLog -LogName "Citrix Power Manager" -Source "Power Manager" -Message “Unable to access $configFile for configuration.” -EventId $evtIDPSSnapIn -EntryType Error -Category None
+        exit 0    
+    }
+}
+
 try {
     Get-BrokerTag -Name "DisablePowerManage" -AdminAddress rlaw-ddc01.rlaw.local -ErrorAction stop | Out-Null
 }
 catch {
     New-BrokerTag -Name "DisablePowerManage" | Out-Null
     Write-Debug "Created Broker Tag 'DisablePowerManage'"
-}
-
-if (Test-Path -Path $configFile) {
-    [xml]$UsageFile = Get-Content $configFile
-}
-else {
-    $xmlwriter = New-Object System.XML.XMLTextWriter($configFile, $Null)
-    $xmlWriter.Formatting = 'Indented'
-    $xmlWriter.Indentation = 1
-    $XmlWriter.IndentChar = "`t"
-    $xmlWriter.WriteStartDocument()
-        $xmlWriter.WriteStartElement('Configuration')
-            $xmlWriter.WriteElementString('DeliveryGroupName', "Standard VDI")
-            $xmlWriter.WriteElementString('PeakStart', "06:00")
-            $xmlWriter.WriteElementString('PeakStop', "17:00")
-            $xmlWriter.WriteStartElement('PeakDays')
-                $xmlWriter.WriteElementString('Day', "Monday")
-                $xmlWriter.WriteElementString('Day', "Tuesday")
-                $xmlWriter.WriteElementString('Day', "Wednesday")
-                $xmlWriter.WriteElementString('Day', "Thursday")
-                $xmlWriter.WriteElementString('Day', "Friday")
-            $xmlWriter.WriteEndElement()
-            $xmlWriter.WriteElementString('PercentAvailableAlways', 10)
-            $xmlWriter.WriteElementString('PercentAvailablePeakStart', 80)
-            $xmlWriter.WriteElementString('MaxUserLoad', 10)
-            $xmlWriter.WriteElementString('StartNextAtLoad', 80)
-            $xmlWriter.WriteElementString('QtyStartNext', 1)
-            $xmlWriter.WriteStartElement('DDC')
-                $xmlWriter.WriteElementString('DDCAddress', "localhost")
-                $xmlWriter.WriteElementString('DDCAddress', "ddc02.domain.local")
-            $xmlWriter.WriteEndElement()
-            $xmlWriter.WriteElementString('DDCPort', 80)
-            $xmlWriter.WriteElementString('ServiceDelay', 60)
-        $xmlWriter.WriteEndElement()
-    $xmlWriter.WriteEndDocument()
-    $xmlWriter.Flush()
-    $xmlWriter.Close()
-    [xml]$UsageFile = Get-Content $configFile
 }
 
 ## Variables
@@ -83,10 +89,9 @@ $PeakDays = $UsageFile.Configuration.PeakDays.Day
 [int]$PercentAvailablePeakStart = $UsageFile.Configuration.PercentAvailablePeakStart
 [int]$maxUserLoad = $UsageFile.Configuration.MaxUserLoad
 [int]$startNextAtload = $UsageFile.Configuration.StartNextAtLoad
-[int]$qtyStartNext = $UsageFile.Configuration.QtyStartNext
 $DDC = $UsageFile.Configuration.DDC.DDCAddress
-[int]$DDCPort = $UsageFile.Configuration.DDCPort
 [int]$serviceDelay = $UsageFile.Configuration.ServiceDelay
+$VerboseLogging = $UsageFile.Configuration.VerboseLogging
 
 ## Functions
 Function Is-PeakHours {
@@ -123,16 +128,17 @@ function Get-AdminAddress ($DDCAddresses, $current) {
 function Get-DesktopCount ($ServerCount, $DDCAddress) {
     $DeliveryGroup = (Get-BrokerDesktopGroup -Name $DeliveryGroupName -AdminAddress $DDCAddress)
     $desktopsInUse = $DeliveryGroup.DesktopsAvailable + $DeliveryGroup.DesktopsInUse
+    $message = "Usage Calculations:"  + "`n"
     
     if (Is-PeakHours) {
-        write-debug "Peak Hours"
+        $message += "Time: Peak Hours" + "`n"
         $MinAvailable = [math]::Ceiling($($PercentAvailablePeakStart / 100) * $ServerCount)
     } else {
-        write-debug "Off-Peak Hours"
+        $message += "Time: Off-Peak Hours" + "`n"
         $MinAvailable = [math]::Ceiling($($PercentAvailableAlways / 100) * $ServerCount)
     }
 
-    $qty = [math]::Ceiling($DeliveryGroup.Sessions / $($startNextAtload / $maxUserLoad))
+    $qty = [math]::Ceiling($DeliveryGroup.Sessions / $maxUserLoad / ($startNextAtload / 100))
 
     if ($qty -lt $MinAvailable) {
         $qty = $MinAvailable
@@ -142,13 +148,20 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
         $qty = $ServerCount
     }
 
-    write-debug "Session Count: $($DeliveryGroup.Sessions)"
-    write-debug "Desktop Count: $desktopsInUse"
-    write-debug "Maximum Desktop Load: $startNextAtload`%"
-    write-debug "Maximum Users Per Desktop: $maxUserLoad"
-    Write-Debug "Desktops in Delivery Group: $ServerCount"
-    write-debug "Desktops requested: $qty"
-    
+    $message += "Session Count: $($DeliveryGroup.Sessions)" + "`n" + `
+                "Desktop Count: $desktopsInUse" + "`n" + `
+                "Current Desktop Load: $([math]::Round(($DeliveryGroup.Sessions / ($maxUserLoad * $desktopsInUse)) * 100))%" + "`n" + `
+                "Maximum Desktop Load: $startNextAtload`%" + "`n" + `
+                "Maximum Users Per Desktop: $maxUserLoad" + "`n" + `
+                "Desktops in Delivery Group: $ServerCount" + "`n" + `
+                "Desktops requested: $qty"
+
+    write-debug $message
+
+    if ($VerboseLogging) {
+        Write-EventLog -LogName "Citrix Power Manager" -Source "Power Manager" -Message $message -EventId $evtIDUsage -EntryType Information
+    }
+
     return $qty
 
 }
@@ -186,7 +199,7 @@ if ($debug) { $DebugPreference = "Continue" }
 if ($serviceDelay -lt 60) { $serviceDelay = 60 }
 $startTime = Get-Date $PeakStart
 $stopTime = Get-Date $PeakStop
-$AdminAddress = Get-AdminAddress $DDC
+$AdminAddress = $NULL
 
 do {
     $AdminAddress = Get-AdminAddress $DDC $AdminAddress
@@ -206,8 +219,6 @@ do {
             Set-MaintenanceMode $_ "Enable" $evtIDMaintOff
         }
 
-        Start-Sleep -Seconds 5
-
         $Servers | % {
             if (($_.PowerState -eq "Off")  -and ( $_.InMaintenanceMode -eq $false)) {
                 Set-Power $_ "TurnOn"  $evtIDPowerOn
@@ -217,5 +228,5 @@ do {
             }
         }
     }
-    Start-Sleep -Seconds ($serviceDelay - 6)
+    Start-Sleep -Seconds ($serviceDelay - 1)
 } while ($true)
