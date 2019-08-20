@@ -91,7 +91,7 @@ $PeakDays = $UsageFile.Configuration.PeakDays.Day
 [int]$startNextAtload = $UsageFile.Configuration.StartNextAtLoad
 $DDC = $UsageFile.Configuration.DDC.DDCAddress
 [int]$serviceDelay = $UsageFile.Configuration.ServiceDelay
-$VerboseLogging = $UsageFile.Configuration.VerboseLogging
+$VerboseLogging = [System.Convert]::ToBoolean($UsageFile.Configuration.VerboseLogging)
 
 ## Functions
 Function Is-PeakHours {
