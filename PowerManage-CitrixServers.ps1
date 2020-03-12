@@ -40,7 +40,9 @@ else {
         $XmlWriter.IndentChar = "`t"
         $xmlWriter.WriteStartDocument()
             $xmlWriter.WriteStartElement('Configuration')
-                $xmlWriter.WriteElementString('DeliveryGroupName', "Standard VDI")
+                $xmlWriter.WriteStartElement('DeliveryGroups')
+                    $xmlWriter.WriteElementString('Name', "Standard VDI")
+                $xmlWriter.WriteEndElement()
                 $xmlWriter.WriteElementString('PeakStart', "08:00")
                 $xmlWriter.WriteElementString('PeakStop', "17:00")
                 $xmlWriter.WriteStartElement('PeakDays')
@@ -81,7 +83,7 @@ catch {
 }
 
 ## Variables
-$DeliveryGroupName = $UsageFile.Configuration.DeliveryGroupName
+$DeliveryGroups = $UsageFile.Configuration.DeliveryGroups.Name
 $PeakStart = $UsageFile.Configuration.PeakStart
 $PeakStop = $UsageFile.Configuration.PeakStop
 $PeakDays = $UsageFile.Configuration.PeakDays.Day
@@ -125,7 +127,7 @@ function Get-AdminAddress ($DDCAddresses, $current) {
     return $false
 }
 
-function Get-DesktopCount ($ServerCount, $DDCAddress) {
+function Get-DesktopCount ($ServerCount, $DDCAddress, $DeliveryGroupName) {
     $DeliveryGroup = (Get-BrokerDesktopGroup -Name $DeliveryGroupName -AdminAddress $DDCAddress)
     $desktopsInUse = $DeliveryGroup.DesktopsAvailable + $DeliveryGroup.DesktopsInUse
     $message = "Usage Calculations:"  + "`n"
@@ -161,7 +163,7 @@ function Get-DesktopCount ($ServerCount, $DDCAddress) {
     if ($VerboseLogging) {
         Write-EventLog -LogName "Citrix Power Manager" -Source "Power Manager" -Message $message -EventId $evtIDUsage -EntryType Information
     }
-
+    
     return $qty
 
 }
@@ -208,25 +210,28 @@ do {
     if ($AdminAddress -ne $false) {
         $now = Get-date
         write-debug (Get-Date $now -Format g)
-        $Servers = Get-BrokerDesktop -DesktopGroupName $DeliveryGroupName -AdminAddress $AdminAddress | sort @{e={($_.AssociatedUserNames).Count}; a=0}, InMaintenanceMode, DNSName
-        $qty = Get-DesktopCount $servers.Count $AdminAddress
+        $DeliveryGroups | % { 
+            Write-Debug "Delivery Group: $_"
+            $Servers = Get-BrokerDesktop -DesktopGroupName $_ -AdminAddress $AdminAddress | sort @{e={($_.AssociatedUserNames).Count}; a=0}, InMaintenanceMode, DNSName
+            $qty = Get-DesktopCount $servers.Count $AdminAddress $_
 
-        $Servers | Select -First $qty | ? { $_.InMaintenanceMode -eq $true } | % { 
-            Set-MaintenanceMode $_ "Disable" $evtIDMaintOn
-        }       
+            $Servers | Select -First $qty | ? { $_.InMaintenanceMode -eq $true } | % { 
+                Set-MaintenanceMode $_ "Disable" $evtIDMaintOn
+            }       
             
-        $Servers | select -last ($servers.Count - $qty) | ? { $_.InMaintenanceMode -eq $false }| % {
-            Set-MaintenanceMode $_ "Enable" $evtIDMaintOff
-        }
-
-        $Servers | % {
-            if (($_.PowerState -eq "Off")  -and ( $_.InMaintenanceMode -eq $false)) {
-                Set-Power $_ "TurnOn"  $evtIDPowerOn
+            $Servers | select -last ($servers.Count - $qty) | ? { $_.InMaintenanceMode -eq $false }| % {
+                Set-MaintenanceMode $_ "Enable" $evtIDMaintOff
             }
-            elseif (($_.SummaryState -eq "Available") -and ($_.PowerState -eq "On") -and ( $_.InMaintenanceMode -eq $true)) {
-                Set-Power $_ "Shutdown" $evtIDPowerOff
+
+            $Servers | % {
+                if (($_.PowerState -eq "Off")  -and ( $_.InMaintenanceMode -eq $false)) {
+                    Set-Power $_ "TurnOn"  $evtIDPowerOn
+                }
+                elseif (($_.SummaryState -eq "Available") -and ($_.PowerState -eq "On") -and ( $_.InMaintenanceMode -eq $true)) {
+                    Set-Power $_ "Shutdown" $evtIDPowerOff
+                }
             }
         }
     }
-    Start-Sleep -Seconds ($serviceDelay - 1)
+    Start-Sleep -Seconds ($serviceDelay)
 } while ($true)
